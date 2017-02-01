@@ -1,5 +1,12 @@
 #include "MFRC522.h"
 #include <Adafruit_NeoPixel.h>
+#include <ArduinoJson.h>
+
+//DHT
+#include "DHT.h"
+#define DHTPIN 2
+#define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
+DHT dht(DHTPIN, DHTTYPE);
 
 //RFID-RC522
 #define RST_PIN 5 // RST-PIN for RC522 - RFID - SPI - Modul GPIO5 
@@ -7,7 +14,9 @@
 
 //LED Ring
 #define PIXEL_PIN 0
+//#define PIXEL_COUNT 12
 #define PIXEL_COUNT 7
+
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(PIXEL_COUNT, PIXEL_PIN, NEO_GRBW + NEO_KHZ800);
 
 MFRC522 mfrc522(SS_PIN, RST_PIN);   // Create MFRC522 instance
@@ -35,7 +44,7 @@ char MAC_char[18];
 //MQTT
 PubSubClient client(espClient);
 long lastMsg = 0;
-char msg[50];
+char msg[100];
 int value = 0;
 
 //Tests
@@ -62,6 +71,8 @@ void setup() {
   //rfid
   SPI.begin();           // Init SPI bus
   mfrc522.PCD_Init();    // Init MFRC522
+
+  dht.begin();
 }
 
 void loop() {
@@ -91,11 +102,14 @@ void loop() {
 
   switch(iState){
       case 0: if (mfrc522.PICC_IsNewCardPresent() && mfrc522.PICC_ReadCardSerial()) {
-                theaterChase(strip.Color(127,   0,   0), 50); // Red
+                colorWipe(strip.Color(0,   0,   0), 0); // Black
+                delay(1);
+                colorWipe(strip.Color(127,   0,   0), 0); // Red
+                delay(400);
                 iState++;
               }else{
-                colorWipe(strip.Color(0, 255, 0), 50);  // Green
-                delay(50);
+                colorWipe(strip.Color(0, 255, 0), 10);  // Green
+                delay(20);
               }
               break;
       case 1: uidstr="";
@@ -115,13 +129,23 @@ void loop() {
               break;
       case 2: Serial.println("Eingelesene Kartennummer: "+uidstr);
               boolean succesfulPublished = false;
-              messageMacUid = "{MAC:"+String(MAC_char)+"}{UID:"+uidstr+"}";
-              messageMacUid.toCharArray(msg, 50);
+              //messageMacUid = "{MAC:"+String(MAC_char)+"}{UID:"+uidstr+"}";
+              //messageMacUid.toCharArray(msg, 50);
+
+              //Create JSON Object
+              StaticJsonBuffer<200> jsonBuffer;
+              JsonObject& root = jsonBuffer.createObject();
+              root["MAC"] = String(MAC_char);
+              root["UID"] = uidstr;
+              root["Humidity"] = (String)dht.readHumidity();
+              root["Temperature"] = (String)dht.readTemperature();
+              root.printTo(msg);
+              
               succesfulPublished = client.publish("rfid/reader/1", msg, 0);
               if(succesfulPublished){
                 Serial.println("Published and waiting 5sek.");
-                theaterChase(strip.Color(127, 127, 127), 50); // White
-                delay(5000);
+                colorWipe(strip.Color(127, 127, 127), 200); // White
+                delay(3000);
                 iState=0;   
                 break;
               } else {
@@ -132,7 +156,7 @@ void loop() {
 }
 }
 void setup_wifi() {
-  colorWipe(strip.Color(255, 0, 0), 50);  // Red
+  colorWipe(strip.Color(255, 0, 0), 100);  // Red
   delay(100);
   // We start by connecting to a WiFi network
   Serial.println();
@@ -142,12 +166,14 @@ void setup_wifi() {
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
+    colorWipe(strip.Color(255, 0, 0), 100);
     Serial.println(WiFi.status());
     Serial.print(".");
     delay(500);
+    colorWipe(strip.Color(0, 0, 0), 10);
   }
 
-  colorWipe(strip.Color(255, 255, 51), 50);  // Yellow
+  colorWipe(strip.Color(155, 155, 51), 50);  // Yellow
   Serial.println("");
   Serial.println("WiFi connected");
   Serial.println("IP address: ");
@@ -208,4 +234,5 @@ void theaterChase(uint32_t c, uint8_t wait) {
     }
   }
 }
+
 
